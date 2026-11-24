@@ -1,0 +1,484 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 0: Global Safety Net - default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitive helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isSuperAdminEmail() {
+      return isVerifiedUser() && request.auth.token.email == 'jahvain795@gmail.com';
+    }
+
+    function isAdmin() {
+      return isSuperAdminEmail() || (
+        isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isOwner(uid) {
+      return isVerifiedUser() && request.auth.uid == uid;
+    }
+
+    function isHexColor(val) {
+      return val is string && val.size() == 7 && val.matches('^#[0-9a-fA-F]{6}$');
+    }
+
+    function isBoundedString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    // Entity validation blueprints
+    function isValidAdminUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'addedBy', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'addedBy', 'createdAt'])
+        && isValidId(data.uid)
+        && isBoundedString(data.email, 3, 160)
+        && isBoundedString(data.displayName, 1, 80)
+        && data.role in ['super_admin', 'staff']
+        && isBoundedString(data.addedBy, 1, 128)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidSiteSettings(data) {
+      return data.keys().hasAll([
+        'shopName', 'whatsappNumber', 'estimatedWaitMins', 'orderingEnabled', 'pickupEnabled',
+        'deliveryEnabled', 'currencySymbol', 'ordersNeededForReward', 'rewardText',
+        'membershipPrice', 'clubEnabled', 'darkMode', 'brandColor', 'accentColor',
+        'crownColor', 'backgroundColor', 'textColor', 'headingFont', 'bodyFont',
+        'animationsEnabled', 'animationScale', 'logoUrl', 'aboutHeading', 'aboutBody',
+        'aboutHighlight', 'contactHeading', 'contactPhone', 'contactEmail', 'contactAddress',
+        'contactHours', 'contactNote', 'splashEnabled', 'splashTitle', 'splashTagline',
+        'splashCtaText', 'splashImageUrl', 'footerText', 'footerSubtext', 'tagline',
+        'tabCombos', 'tabBuild', 'tabOrders', 'tabCard', 'tabClub',
+        'pickBarComboText', 'pickBarBuildText', 'viewOrderText', 'ticketHeading',
+        'ticketWaitLabel', 'ticketWhatsappText', 'ticketBackText', 'ticketFooterNote',
+        'updatedAt', 'updatedBy'
+      ]) && data.keys().hasOnly([
+        'shopName', 'whatsappNumber', 'estimatedWaitMins', 'orderingEnabled', 'pickupEnabled',
+        'deliveryEnabled', 'currencySymbol', 'ordersNeededForReward', 'rewardText',
+        'membershipPrice', 'clubEnabled', 'darkMode', 'brandColor', 'accentColor',
+        'crownColor', 'backgroundColor', 'textColor', 'headingFont', 'bodyFont',
+        'animationsEnabled', 'animationScale', 'logoUrl', 'aboutHeading', 'aboutBody',
+        'aboutHighlight', 'contactHeading', 'contactPhone', 'contactEmail', 'contactAddress',
+        'contactHours', 'contactNote', 'splashEnabled', 'splashTitle', 'splashTagline',
+        'splashCtaText', 'splashImageUrl', 'footerText', 'footerSubtext', 'tagline',
+        'tabCombos', 'tabBuild', 'tabOrders', 'tabCard', 'tabClub',
+        'pickBarComboText', 'pickBarBuildText', 'viewOrderText', 'ticketHeading',
+        'ticketWaitLabel', 'ticketWhatsappText', 'ticketBackText', 'ticketFooterNote',
+        'updatedAt', 'updatedBy'
+      ])
+      && isBoundedString(data.shopName, 1, 80)
+      && isBoundedString(data.whatsappNumber, 5, 24)
+      && data.whatsappNumber.matches('^[0-9+\\-\\s()]+$')
+      && (data.estimatedWaitMins is int || data.estimatedWaitMins is float)
+      && data.estimatedWaitMins >= 1 && data.estimatedWaitMins <= 240
+      && data.orderingEnabled is bool
+      && data.pickupEnabled is bool
+      && data.deliveryEnabled is bool
+      && isBoundedString(data.currencySymbol, 1, 8)
+      && (data.ordersNeededForReward is int || data.ordersNeededForReward is float)
+      && data.ordersNeededForReward >= 1 && data.ordersNeededForReward <= 100
+      && isBoundedString(data.rewardText, 0, 160)
+      && (data.membershipPrice is int || data.membershipPrice is float)
+      && data.membershipPrice >= 0 && data.membershipPrice <= 100000
+      && data.clubEnabled is bool
+      && data.darkMode is bool
+      && isHexColor(data.brandColor)
+      && isHexColor(data.accentColor)
+      && isHexColor(data.crownColor)
+      && isHexColor(data.backgroundColor)
+      && isHexColor(data.textColor)
+      && isBoundedString(data.headingFont, 0, 80)
+      && isBoundedString(data.bodyFont, 0, 80)
+      && data.animationsEnabled is bool
+      && (data.animationScale is int || data.animationScale is float)
+      && data.animationScale >= 0.5 && data.animationScale <= 5
+      && isBoundedString(data.logoUrl, 0, 500)
+      && isBoundedString(data.aboutHeading, 0, 120)
+      && isBoundedString(data.aboutBody, 0, 2000)
+      && isBoundedString(data.aboutHighlight, 0, 300)
+      && isBoundedString(data.contactHeading, 0, 120)
+      && isBoundedString(data.contactPhone, 0, 40)
+      && isBoundedString(data.contactEmail, 0, 120)
+      && isBoundedString(data.contactAddress, 0, 240)
+      && isBoundedString(data.contactHours, 0, 160)
+      && isBoundedString(data.contactNote, 0, 600)
+      && data.splashEnabled is bool
+      && isBoundedString(data.splashTitle, 0, 120)
+      && isBoundedString(data.splashTagline, 0, 240)
+      && isBoundedString(data.splashCtaText, 0, 60)
+      && isBoundedString(data.splashImageUrl, 0, 500)
+      && isBoundedString(data.footerText, 0, 240)
+      && isBoundedString(data.footerSubtext, 0, 240)
+      && isBoundedString(data.tagline, 0, 120)
+      && isBoundedString(data.tabCombos, 0, 40)
+      && isBoundedString(data.tabBuild, 0, 40)
+      && isBoundedString(data.tabOrders, 0, 40)
+      && isBoundedString(data.tabCard, 0, 40)
+      && isBoundedString(data.tabClub, 0, 40)
+      && isBoundedString(data.pickBarComboText, 0, 60)
+      && isBoundedString(data.pickBarBuildText, 0, 60)
+      && isBoundedString(data.viewOrderText, 0, 60)
+      && isBoundedString(data.ticketHeading, 0, 80)
+      && isBoundedString(data.ticketWaitLabel, 0, 60)
+      && isBoundedString(data.ticketWhatsappText, 0, 60)
+      && isBoundedString(data.ticketBackText, 0, 60)
+      && isBoundedString(data.ticketFooterNote, 0, 200)
+      && data.updatedAt == request.time
+      && isBoundedString(data.updatedBy, 1, 128)
+      && data.updatedBy == request.auth.uid;
+    }
+
+    function isValidCategory(data) {
+      return data.keys().hasAll(['id', 'key', 'name', 'selectionMode', 'sortOrder', 'available', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'key', 'name', 'selectionMode', 'sortOrder', 'available', 'updatedAt'])
+        && isValidId(data.id)
+        && data.key in ['bun', 'meat', 'cheese', 'toppings', 'sauces', 'sides', 'combos']
+        && isBoundedString(data.name, 1, 60)
+        && data.selectionMode in ['single', 'multi']
+        && (data.sortOrder is int || data.sortOrder is float)
+        && data.sortOrder >= 0 && data.sortOrder <= 1000
+        && data.available is bool
+        && data.updatedAt == request.time;
+    }
+
+    function isValidMenuItem(data) {
+      return data.keys().hasAll([
+        'id', 'categoryKey', 'name', 'price', 'description', 'swatch',
+        'visualKey', 'maxQty', 'sortOrder', 'available', 'comboBun',
+        'comboIngredients', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'categoryKey', 'name', 'price', 'description', 'swatch',
+        'visualKey', 'maxQty', 'sortOrder', 'available', 'comboBun',
+        'comboIngredients', 'updatedAt'
+      ])
+      && isValidId(data.id)
+      && data.categoryKey in ['bun', 'meat', 'cheese', 'toppings', 'sauces', 'sides', 'combos']
+      && isBoundedString(data.name, 1, 80)
+      && (data.price is int || data.price is float)
+      && data.price >= 0 && data.price <= 100000
+      && isBoundedString(data.description, 0, 300)
+      && isHexColor(data.swatch)
+      && isValidId(data.visualKey)
+      && data.visualKey.size() <= 64
+      && (data.maxQty is int || data.maxQty is float)
+      && data.maxQty >= 1 && data.maxQty <= 10
+      && (data.sortOrder is int || data.sortOrder is float)
+      && data.sortOrder >= 0 && data.sortOrder <= 1000
+      && data.available is bool
+      && isBoundedString(data.comboBun, 0, 64)
+      && data.comboIngredients is list
+      && data.comboIngredients.size() <= 20
+      && (data.comboIngredients.size() == 0 || (data.comboIngredients[0] is string && data.comboIngredients[0].size() <= 80))
+      && data.updatedAt == request.time;
+    }
+
+    function isValidOrderRecord(data) {
+      return data.keys().hasAll([
+        'id', 'userId', 'ticketCode', 'customerName', 'customerPhone',
+        'deliveryAddress', 'orderMode', 'comboName', 'items', 'total',
+        'status', 'notes', 'staffNote', 'approved', 'approvedBy', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'userId', 'ticketCode', 'customerName', 'customerPhone',
+        'deliveryAddress', 'orderMode', 'comboName', 'items', 'total',
+        'status', 'notes', 'staffNote', 'approved', 'approvedBy', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.id)
+      && isBoundedString(data.userId, 1, 128)
+      && isBoundedString(data.ticketCode, 2, 24)
+      && data.ticketCode.matches('^[A-Z0-9\\-]+$')
+      && isBoundedString(data.customerName, 1, 80)
+      && isBoundedString(data.customerPhone, 5, 30)
+      && isBoundedString(data.deliveryAddress, 0, 240)
+      && data.orderMode in ['Pickup', 'Delivery']
+      && isBoundedString(data.comboName, 0, 80)
+      && data.items is list
+      && data.items.size() >= 1 && data.items.size() <= 25
+      && data.items[0] is string && data.items[0].size() <= 120
+      && (data.total is int || data.total is float)
+      && data.total >= 0 && data.total <= 500000
+      && data.status in ['pending', 'preparing', 'ready', 'completed', 'cancelled']
+      && isBoundedString(data.notes, 0, 300)
+      && isBoundedString(data.staffNote, 0, 300)
+      && data.approved is bool
+      && isBoundedString(data.approvedBy, 0, 128)
+      && (!data.approved || data.status != 'cancelled')
+      && data.createdAt is timestamp
+      && data.updatedAt == request.time;
+    }
+
+    function isValidRevenueEntry(data) {
+      return data.keys().hasAll([
+        'id', 'title', 'category', 'amount', 'note',
+        'approved', 'createdBy', 'approvedBy', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'title', 'category', 'amount', 'note',
+        'approved', 'createdBy', 'approvedBy', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.id)
+      && isBoundedString(data.title, 1, 100)
+      && data.category in ['walk_in', 'whatsapp', 'club_fee', 'catering', 'other']
+      && (data.amount is int || data.amount is float)
+      && data.amount >= 0 && data.amount <= 500000
+      && isBoundedString(data.note, 0, 300)
+      && data.approved is bool
+      && isBoundedString(data.createdBy, 1, 128)
+      && isBoundedString(data.approvedBy, 0, 128)
+      && data.createdAt is timestamp
+      && data.updatedAt == request.time;
+    }
+
+    function isValidBurgerClubMember(data) {
+      return data.keys().hasAll([
+        'id', 'userId', 'name', 'phone', 'email', 'stamps',
+        'lifetimeOrders', 'rewardsRedeemed', 'firstInLine', 'status',
+        'notes', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'userId', 'name', 'phone', 'email', 'stamps',
+        'lifetimeOrders', 'rewardsRedeemed', 'firstInLine', 'status',
+        'notes', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.id)
+      && isBoundedString(data.userId, 1, 128)
+      && isBoundedString(data.name, 1, 80)
+      && isBoundedString(data.phone, 5, 30)
+      && isBoundedString(data.email, 0, 120)
+      && (data.stamps is int || data.stamps is float)
+      && data.stamps >= 0 && data.stamps <= 100
+      && (data.lifetimeOrders is int || data.lifetimeOrders is float)
+      && data.lifetimeOrders >= 0 && data.lifetimeOrders <= 10000
+      && (data.rewardsRedeemed is int || data.rewardsRedeemed is float)
+      && data.rewardsRedeemed >= 0 && data.rewardsRedeemed <= 1000
+      && data.firstInLine is bool
+      && data.status in ['active', 'paused']
+      && isBoundedString(data.notes, 0, 300)
+      && data.createdAt is timestamp
+      && data.updatedAt == request.time;
+    }
+
+    function isValidSpeedyPet(data) {
+      return data.keys().hasAll([
+        'id', 'userId', 'name', 'species', 'gender', 'furColor', 'hairStyle', 'hairColor',
+        'eyeStyle', 'eyeColor', 'eyebrowStyle', 'expression', 'facialHair',
+        'topId', 'bottomId', 'footwearId', 'accessories',
+        'lastFedAt', 'happiness', 'streakDays', 'totalMealsEaten', 'xp', 'level',
+        'lastMealName', 'lastMealItems', 'createdAt', 'updatedAt'
+      ]) && data.keys().hasOnly([
+        'id', 'userId', 'name', 'species', 'gender', 'furColor', 'hairStyle', 'hairColor',
+        'eyeStyle', 'eyeColor', 'eyebrowStyle', 'expression', 'facialHair',
+        'topId', 'bottomId', 'footwearId', 'accessories',
+        'lastFedAt', 'happiness', 'streakDays', 'totalMealsEaten', 'xp', 'level',
+        'lastMealName', 'lastMealItems', 'createdAt', 'updatedAt'
+      ])
+      && isValidId(data.id)
+      && isBoundedString(data.userId, 1, 128)
+      && isBoundedString(data.name, 1, 50)
+      && data.species in [
+        'shadow_tux', 'pink_hero', 'kid_speed', 'reverse_bolt', 'blue_dash', 'crimson_bolt',
+        'cat', 'dog', 'bunny', 'bear', 'fox', 'lion'
+      ]
+      && data.gender in ['male', 'female']
+      && isBoundedString(data.furColor, 1, 40)
+      && isBoundedString(data.hairStyle, 1, 40)
+      && isHexColor(data.hairColor)
+      && isBoundedString(data.eyeStyle, 1, 40)
+      && isHexColor(data.eyeColor)
+      && isBoundedString(data.eyebrowStyle, 1, 40)
+      && isBoundedString(data.expression, 1, 40)
+      && isBoundedString(data.facialHair, 1, 40)
+      && isBoundedString(data.topId, 1, 64)
+      && isBoundedString(data.bottomId, 1, 64)
+      && isBoundedString(data.footwearId, 1, 64)
+      && data.accessories is list
+      && data.accessories.size() <= 10
+      && (data.accessories.size() == 0 || (data.accessories[0] is string && data.accessories[0].size() <= 40))
+      && (data.lastFedAt is int || data.lastFedAt is float)
+      && data.lastFedAt >= 0
+      && (data.happiness is int || data.happiness is float)
+      && data.happiness >= 0 && data.happiness <= 100
+      && (data.streakDays is int || data.streakDays is float)
+      && data.streakDays >= 0 && data.streakDays <= 10000
+      && (data.totalMealsEaten is int || data.totalMealsEaten is float)
+      && data.totalMealsEaten >= 0 && data.totalMealsEaten <= 100000
+      && (data.xp is int || data.xp is float)
+      && data.xp >= 0 && data.xp <= 1000000
+      && (data.level is int || data.level is float)
+      && data.level >= 1 && data.level <= 100
+      && isBoundedString(data.lastMealName, 0, 120)
+      && data.lastMealItems is list
+      && data.lastMealItems.size() <= 25
+      && (data.lastMealItems.size() == 0 || (data.lastMealItems[0] is string && data.lastMealItems[0].size() <= 120))
+      && data.createdAt is timestamp
+      && data.updatedAt == request.time;
+    }
+
+    // 1. Authorized Staff Collection (PII: staff emails)
+    match /admins/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(uid) && isAdmin() && isValidAdminUser(incoming()) && incoming().uid == uid && incoming().addedBy == request.auth.uid && incoming().createdAt == request.time;
+      allow update: if isValidId(uid) && isAdmin() && isValidAdminUser(incoming()) && incoming().uid == existing().uid && incoming().addedBy == existing().addedBy && incoming().createdAt == existing().createdAt && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'role', 'email']);
+      allow delete: if isValidId(uid) && isAdmin() && uid != request.auth.uid;
+    }
+
+    // 2. Public Storefront Settings & CMS Content
+    match /siteSettings/{docId} {
+      allow get: if docId == 'public';
+      allow list: if false;
+      allow create: if docId == 'public' && isAdmin() && isValidSiteSettings(incoming());
+      allow update: if docId == 'public' && isAdmin() && isValidSiteSettings(incoming());
+      allow delete: if false;
+    }
+
+    // 3. Menu Categories (public catalog read, admin-only write)
+    match /categories/{categoryId} {
+      allow get: if isValidId(categoryId);
+      allow list: if true;
+      allow create: if isValidId(categoryId) && isAdmin() && isValidCategory(incoming()) && incoming().id == categoryId;
+      allow update: if isValidId(categoryId) && isAdmin() && isValidCategory(incoming()) && incoming().id == existing().id && incoming().diff(existing()).affectedKeys().hasOnly(['key', 'name', 'selectionMode', 'sortOrder', 'available', 'updatedAt']);
+      allow delete: if isValidId(categoryId) && isAdmin();
+    }
+
+    // 4. Menu Items & Combos (public catalog read, admin-only write)
+    match /items/{itemId} {
+      allow get: if isValidId(itemId);
+      allow list: if true;
+      allow create: if isValidId(itemId) && isAdmin() && isValidMenuItem(incoming()) && incoming().id == itemId;
+      allow update: if isValidId(itemId) && isAdmin() && isValidMenuItem(incoming()) && incoming().id == existing().id && incoming().diff(existing()).affectedKeys().hasOnly(['categoryKey', 'name', 'price', 'description', 'swatch', 'visualKey', 'maxQty', 'sortOrder', 'available', 'comboBun', 'comboIngredients', 'updatedAt']);
+      allow delete: if isValidId(itemId) && isAdmin();
+    }
+
+    // 5. Customer Orders (PII isolated to owner or staff)
+    match /orders/{orderId} {
+      allow get: if isValidId(orderId) && (isAdmin() || (isVerifiedUser() && existing().userId == request.auth.uid));
+      allow list: if isAdmin() || (isVerifiedUser() && existing().userId == request.auth.uid);
+      allow create: if isValidId(orderId)
+        && isVerifiedUser()
+        && isValidOrderRecord(incoming())
+        && incoming().id == orderId
+        && incoming().userId == request.auth.uid
+        && incoming().status == 'pending'
+        && incoming().staffNote == ''
+        && incoming().approved == false
+        && incoming().approvedBy == ''
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(orderId)
+        && isAdmin()
+        && isValidOrderRecord(incoming())
+        && incoming().id == existing().id
+        && incoming().userId == existing().userId
+        && incoming().ticketCode == existing().ticketCode
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'staffNote', 'approved', 'approvedBy', 'updatedAt'])
+        && (incoming().approved ? isBoundedString(incoming().approvedBy, 1, 128) : incoming().approvedBy == '');
+      allow delete: if isValidId(orderId) && isAdmin();
+    }
+
+    // 6. Burger Club Loyalty Members (PII + balance protected)
+    match /burgerClub/{memberId} {
+      allow get: if isValidId(memberId) && (isAdmin() || (isVerifiedUser() && existing().userId == request.auth.uid));
+      allow list: if isAdmin() || (isVerifiedUser() && existing().userId == request.auth.uid);
+      allow create: if isValidId(memberId) && isValidBurgerClubMember(incoming()) && incoming().id == memberId && incoming().createdAt == request.time && (
+        isAdmin() || (
+          isOwner(memberId)
+          && incoming().userId == request.auth.uid
+          && incoming().stamps == 0
+          && incoming().lifetimeOrders == 0
+          && incoming().rewardsRedeemed == 0
+          && incoming().firstInLine == false
+          && incoming().status == 'active'
+          && incoming().notes == ''
+        )
+      );
+      allow update: if isValidId(memberId)
+        && isValidBurgerClubMember(incoming())
+        && incoming().id == existing().id
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'email', 'stamps', 'lifetimeOrders', 'rewardsRedeemed', 'firstInLine', 'status', 'notes', 'updatedAt'])) ||
+          (isVerifiedUser() && existing().userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'email', 'updatedAt']))
+        );
+      allow delete: if isValidId(memberId) && isAdmin();
+    }
+
+    // 7. Saved Speedy Pet Mascots
+    match /speedyPets/{petId} {
+      allow get: if isValidId(petId) && (isAdmin() || (isVerifiedUser() && existing().userId == request.auth.uid));
+      allow list: if isAdmin() || (isVerifiedUser() && existing().userId == request.auth.uid);
+      allow create: if isValidId(petId)
+        && isVerifiedUser()
+        && isValidSpeedyPet(incoming())
+        && incoming().id == petId
+        && incoming().userId == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(petId)
+        && isVerifiedUser()
+        && isValidSpeedyPet(incoming())
+        && incoming().id == existing().id
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && (isAdmin() || existing().userId == request.auth.uid)
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'species', 'gender', 'furColor', 'hairStyle', 'hairColor',
+          'eyeStyle', 'eyeColor', 'eyebrowStyle', 'expression', 'facialHair',
+          'topId', 'bottomId', 'footwearId', 'accessories',
+          'lastFedAt', 'happiness', 'streakDays', 'totalMealsEaten', 'xp', 'level',
+          'lastMealName', 'lastMealItems', 'updatedAt'
+        ]);
+      allow delete: if isValidId(petId) && (isAdmin() || (isVerifiedUser() && existing().userId == request.auth.uid));
+    }
+
+    // 8. Admin Revenue & Approval Ledger (staff-only access, unapproved on creation)
+    match /revenueEntries/{entryId} {
+      allow get: if isValidId(entryId) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidId(entryId)
+        && isAdmin()
+        && isValidRevenueEntry(incoming())
+        && incoming().id == entryId
+        && incoming().createdBy == request.auth.uid
+        && incoming().approved == false
+        && incoming().approvedBy == ''
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(entryId)
+        && isAdmin()
+        && isValidRevenueEntry(incoming())
+        && incoming().id == existing().id
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'amount', 'note', 'approved', 'approvedBy', 'updatedAt'])
+        && (incoming().approved ? incoming().approvedBy == request.auth.uid : incoming().approvedBy == '');
+      allow delete: if isValidId(entryId) && isAdmin();
+    }
+
+    // 9. Connection probe path
+    match /test/{docId} {
+      allow get: if docId == 'connection';
+      allow list, write: if false;
+    }
+  }
+}
